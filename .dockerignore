@@ -1,0 +1,12 @@
+.env
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv
+venv/
+notebooks/
+data/raw/
+*.ipynb_checkpoints
+README.md
+deployment/

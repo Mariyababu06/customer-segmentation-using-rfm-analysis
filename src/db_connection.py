@@ -1,12 +1,6 @@
-"""
-Central place for creating the SQLAlchemy engine.
-Every other script imports get_engine() from here instead of
-building its own connection string.
-"""
-
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from qlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 load_dotenv()

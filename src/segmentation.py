@@ -1,11 +1,3 @@
-"""
-Scores customers on R/F/M, clusters them with KMeans, auto-labels
-each cluster based on its relative R/F/M profile, and writes the
-result to both Postgres (rfm_scored) and data/processed/rfm_scored.csv.
-
-Run from the src/ folder: python segmentation.py
-"""
-
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
@@ -16,8 +8,7 @@ OUTPUT_CSV = "../data/processed/rfm_scored.csv"
 
 
 def score_rfm(rfm: pd.DataFrame) -> pd.DataFrame:
-    """Add R/F/M quintile scores (1-5). Uses rank-based qcut to avoid
-    'Bin edges must be unique' errors caused by repeated values."""
+    
     rfm["R_score"] = pd.qcut(
         rfm["recency_days"].rank(method="first"), 5, labels=[5, 4, 3, 2, 1]
     ).astype(int)
