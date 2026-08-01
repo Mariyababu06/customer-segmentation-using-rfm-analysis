@@ -1,8 +1,7 @@
 #!/bin/bash
 set -e
 
-CSV_PATH="data/processed/rfm_scored.csv"
-RAW_CSV="data/raw/online_retail_II.csv"
+RAW_FILE="data/raw/online_retail_II.xlsx"
 
 echo "=== RFM App Entrypoint ==="
 
@@ -13,19 +12,24 @@ until pg_isready -h "$DB_HOST" -U "$DB_USER" > /dev/null 2>&1; do
 done
 echo "Database is up."
 
-if [ -f "$CSV_PATH" ]; then
-    echo "$CSV_PATH already exists — skipping pipeline, launching dashboard."
-else
-    echo "$CSV_PATH not found — running full pipeline..."
+# Check the DB itself (not local disk) to decide whether to run the pipeline.
+# This works correctly even though Render containers are ephemeral.
+ROW_COUNT=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -tAc \
+    "SELECT COUNT(*) FROM rfm_table;" 2>/dev/null || echo "0")
 
-    if [ ! -f "$RAW_CSV" ]; then
-        echo "ERROR: $RAW_CSV not found."
-        echo "Mount the raw dataset into the container, e.g.:"
-        echo "  docker run -v \$(pwd)/data/raw:/app/data/raw ..."
+if [ "$ROW_COUNT" -gt "0" ] 2>/dev/null; then
+    echo "rfm_table already has $ROW_COUNT rows — skipping pipeline, launching dashboard."
+else
+    echo "rfm_table is empty or missing — running full pipeline..."
+
+    if [ ! -f "$RAW_FILE" ]; then
+        echo "ERROR: $RAW_FILE not found in the image."
+        echo "Make sure your Dockerfile has: COPY data/raw/ /app/data/raw/"
+        echo "And that .dockerignore / .gitignore do not exclude this file."
         exit 1
     fi
 
-    echo "[1/4] Loading raw CSV into Postgres (raw_transactions)..."
+    echo "[1/4] Loading raw Excel data into Postgres (retail_transactions)..."
     (cd src && python data_loader.py)
 
     echo "[2/4] Cleaning data (clean_transactions)..."
