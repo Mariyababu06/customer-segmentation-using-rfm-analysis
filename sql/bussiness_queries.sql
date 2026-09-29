@@ -14,7 +14,7 @@ SELECT decile,
        ROUND(100.0 * SUM(SUM(monetary)) OVER (ORDER BY decile)
                    / SUM(SUM(monetary)) OVER (), 1)                  AS cumulative_pct_of_revenue
 FROM ranked
-GROUP BY decile
+GROUP BY decileR
 ORDER BY decile;
  
  
