@@ -300,7 +300,7 @@ The Streamlit app reads `data/processed/rfm_scored.csv` and shows:
 - Segment profile table (average recency, frequency, monetary)
 - **Customer lookup** by ID to see any customer's RFM values and segment
 
-Live demo: `http://<EC2-PUBLIC-IP>:8501` *(add your link)*
+Live demo: `https://customer-segmentation-rfm-mb.streamlit.app/`
 
 ---
 
