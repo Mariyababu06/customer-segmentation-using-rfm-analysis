@@ -154,24 +154,24 @@ flowchart LR
 ```
 customer-segmentation-using-rfm-analysis/
 ├── data/
-│   ├── raw/                      # original CSV (not pushed to GitHub)
-│   └── processed/                # rfm_scored.csv output
+│   ├── raw/                      
+│   └── processed/                
 ├── sql/
-│   ├── 01_schema.sql             # reference: expected raw table shape
-│   ├── 02_clean_data.sql         # raw -> clean_transactions
-│   ├── 03_rfm_aggregation.sql    # clean -> rfm_table
-│   └── 04_business_queries.sql   # business questions Q1-Q7
+│   ├── 01_schema.sql             
+│   ├── 02_clean_data.sql        
+│   ├── 03_rfm_aggregation.sql    
+│   └── 04_business_queries.sql   
 ├── src/
-│   ├── db_connection.py          # SQLAlchemy engine from .env
-│   ├── data_loader.py            # CSV -> raw_transactions
-│   ├── segmentation.py           # scoring + KMeans + labelling
-│   └── utils.py                  # shared helpers
+│   ├── db_connection.py          
+│   ├── data_loader.py          
+│   ├── segmentation.py          
+│   └── utils.py                
 ├── app/
-│   └── streamlit_app.py          # dashboard
+│   └── streamlit_app.py          
 ├── notebooks/
-│   ├── eda.ipynb                 # full EDA + choosing k
-│   └── EDA_REPORT.md             # problem statement & conclusions write-up
-├── deployment/
+│   ├── eda.ipynb                 
+│   └── EDA_REPORT.md             
+├── deployment
 │   └── ec2_setup_notes.md
 ├── .env.example
 ├── .gitignore
