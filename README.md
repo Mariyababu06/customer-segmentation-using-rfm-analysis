@@ -103,7 +103,7 @@ flowchart LR
 
 | Rule (cluster averages) | Label |
 |---|---|
-| Recent (R ≥ 3.5), F ≥ 4 and M ≥ 4 | Champions |
+| Recent (R ≥ 3.5), F >= 4 and M >= 4 | Champions |
 | Recent, good F/M | Loyal Customers |
 | Recent, low F/M | Potential Loyalists |
 | Gone quiet (R < 3), good F/M | At Risk |
@@ -155,12 +155,22 @@ The script also prints a warning if two clusters share a label or no At Risk clu
 - At Risk customers' recency starts at 20 days and their 25th percentile is 76 days; Lost / Churned customers' 25th percentile is 244 days.
 - Suggested re-engagement trigger: no purchase for **[N] days** (take this from the At Risk median / p75 in Q4).
 
+**Retail vs wholesale (Q5)**
+
+| Orders placed | Customers | % of customers | % of revenue |
+|---|---|---|---|
+| 1 (one-time) | 1,623 | 27.6% | 3.2% |
+| 2-4 | 2,094 | 35.6% | 12.8% |
+| 5-9 | 1,187 | 20.2% | 16.7% |
+| 10+ (likely wholesale) | 974 | 16.6% | 67.2% |
+
+- The business is **wholesale-driven**: the 16.6% of customers with 10+ orders generate 67.2% of revenue.
+- The 63.2% of customers who ordered four times or fewer generate only 16.0% of revenue, so a "typical customer" figure based on the average would be misleading.
+
 **Geography (Q6)**
 - The UK is dominant: 5,350 customers and £14.4M revenue, about 83% of total.
 - Next: EIRE (£617K, 5 customers) and the Netherlands (£554K, 22 customers).
 - Top 3 countries together are about 90% of revenue.
-
-**Retail vs wholesale (Q5):** [fill in from your Q5 output: share of revenue from customers with 10+ orders].
 
 ---
 
