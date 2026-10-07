@@ -1,14 +1,20 @@
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+
 from db_connection import get_engine
 
-N_CLUSTERS = 4
-OUTPUT_CSV = "../data/processed/rfm_scored.csv"
+K_RANGE = range(3, 7)
+MIN_CLUSTER_SHARE = 0.02  # reject clusterings with a cluster under 2% of customers
+OUTPUT_CSV = Path(__file__).resolve().parent.parent / "data" / "processed" / "rfm_scored.csv"
 
 
 def score_rfm(rfm: pd.DataFrame) -> pd.DataFrame:
-    
+    """1-5 quintile scores (5 = best)."""
     rfm["R_score"] = pd.qcut(
         rfm["recency_days"].rank(method="first"), 5, labels=[5, 4, 3, 2, 1]
     ).astype(int)
@@ -21,48 +27,79 @@ def score_rfm(rfm: pd.DataFrame) -> pd.DataFrame:
     return rfm
 
 
-def cluster_rfm(rfm: pd.DataFrame, n_clusters: int = N_CLUSTERS) -> pd.DataFrame:
-    X = rfm[["recency_days", "frequency", "monetary"]]
-    X_scaled = StandardScaler().fit_transform(X)
+def prepare_features(rfm: pd.DataFrame) -> np.ndarray:
+    """Log-transform skewed R, F, M, then standardise."""
+    X = rfm[["recency_days", "frequency", "monetary"]].clip(lower=0)
+    return StandardScaler().fit_transform(np.log1p(X))
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    rfm["segment"] = kmeans.fit_predict(X_scaled)
+
+def choose_k(X_scaled: np.ndarray) -> int:
+    """Pick k with the best silhouette, ignoring k that creates tiny clusters."""
+    results = []
+    for k in K_RANGE:
+        labels = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(X_scaled)
+        smallest_share = np.bincount(labels).min() / len(labels)
+        sil = silhouette_score(X_scaled, labels, sample_size=3000, random_state=42)
+        results.append((k, sil, smallest_share))
+        print(f"k={k}  silhouette={sil:.3f}  smallest cluster={smallest_share:.1%}")
+
+    valid = [r for r in results if r[2] >= MIN_CLUSTER_SHARE] or results
+    best_k = max(valid, key=lambda r: r[1])[0]
+    print(f"Chosen k = {best_k}")
+    return best_k
+
+
+def cluster_rfm(rfm: pd.DataFrame) -> pd.DataFrame:
+    X_scaled = prepare_features(rfm)
+    k = choose_k(X_scaled)
+    rfm["segment"] = KMeans(n_clusters=k, random_state=42, n_init=10).fit_predict(X_scaled)
     return rfm
 
 
+def name_segment(r: float, f: float, m: float) -> str:
+    """
+    Name a cluster from its average 1-5 scores (5 = best).
+    Recency decides first: only recent clusters can be Champions/Loyal.
+    """
+    value = (f + m) / 2          # how valuable the customer is
+    recent = r >= 3.5            # bought recently
+    gone_quiet = r < 3.0         # clearly past their usual buying rhythm
+
+    if recent and f >= 4 and m >= 4:
+        return "Champions"
+    if recent and value >= 3:
+        return "Loyal Customers"
+    if recent:
+        return "Potential Loyalists"   # recent but low frequency/spend
+    if gone_quiet and value >= 3:
+        return "At Risk"               # good buyers who have gone quiet
+    if gone_quiet:
+        return "Lost / Churned"        # quiet and low value
+    return "Needs Attention"           # middle recency, low value
+
+
 def label_segments(rfm: pd.DataFrame) -> pd.DataFrame:
-    """
-    Auto-names each cluster instead of requiring a hand-written dict.
-    Ranks clusters on each dimension (recency ascending = better,
-    frequency/monetary descending = better) and combines the ranks
-    into a single composite score to order clusters from best to worst.
-    """
-    summary = rfm.groupby("segment")[["recency_days", "frequency", "monetary"]].mean()
-
-    # Lower recency is better; higher frequency/monetary is better.
-    summary["recency_rank"] = summary["recency_days"].rank(ascending=True)
-    summary["frequency_rank"] = summary["frequency"].rank(ascending=False)
-    summary["monetary_rank"] = summary["monetary"].rank(ascending=False)
-    summary["composite_rank"] = (
-        summary["recency_rank"] + summary["frequency_rank"] + summary["monetary_rank"]
+    """Labels follow behaviour, never rank order."""
+    summary = rfm.groupby("segment").agg(
+        customers=("segment", "size"),
+        avg_recency_days=("recency_days", "mean"),
+        avg_orders=("frequency", "mean"),
+        avg_spend=("monetary", "mean"),
+        R=("R_score", "mean"),
+        F=("F_score", "mean"),
+        M=("M_score", "mean"),
     )
-    summary = summary.sort_values("composite_rank")
+    summary["label"] = [name_segment(r.R, r.F, r.M) for r in summary.itertuples()]
+    rfm["segment_label"] = rfm["segment"].map(summary["label"])
 
-    n = len(summary)
-    label_pool = ["Champions", "Loyal Customers", "At Risk", "Lost / Churned"]
-    # If N_CLUSTERS != 4, fall back to generic tier names.
-    if n != len(label_pool):
-        label_pool = [f"Tier {i+1}" for i in range(n)]
+    print("\nSegment profile:")
+    print(summary.round(1).sort_values("avg_recency_days").to_string())
 
-    segment_to_label = {
-        seg_id: label_pool[i] for i, seg_id in enumerate(summary.index)
-    }
-    rfm["segment_label"] = rfm["segment"].map(segment_to_label)
-
-    print("\nSegment profile (best to worst):")
-    print(summary[["recency_days", "frequency", "monetary"]].round(1))
-    print("\nLabel mapping:", segment_to_label)
-
+    # Sanity checks so a wrong label can't slip through silently
+    if summary["label"].duplicated().any():
+        print("\nWARNING: two clusters share a label. Review the profile above.")
+    if "At Risk" not in set(summary["label"]):
+        print("\nWARNING: no cluster is labelled 'At Risk'. Q3 and Q7 will be empty.")
     return rfm
 
 
@@ -74,10 +111,10 @@ def run_segmentation() -> None:
     rfm = cluster_rfm(rfm)
     rfm = label_segments(rfm)
 
+    OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     rfm.to_sql("rfm_scored", engine, if_exists="replace", index=False)
     rfm.to_csv(OUTPUT_CSV, index=False)
-
-    print(f"\nSaved {len(rfm)} scored customers to rfm_scored (DB) and {OUTPUT_CSV}")
+    print(f"\nSaved {len(rfm)} customers to rfm_scored (DB) and {OUTPUT_CSV}")
 
 
 if __name__ == "__main__":
