@@ -2,6 +2,8 @@
 
 End-to-end customer segmentation pipeline: **PostgreSQL + SQL (CTEs, window functions) + Python (KMeans) + Streamlit dashboard**, built on 1M+ retail transaction lines to show a business *who its best customers are, who is slipping away, and where marketing budget is being wasted.*
 
+**Headline result:** 18.5% of customers (Champions) generate ~71% of revenue, and a further 25.5% (At Risk) hold £3.2M of historical revenue but have not bought for ~7 months.
+
 ---
 
 ## Table of Contents
@@ -10,16 +12,17 @@ End-to-end customer segmentation pipeline: **PostgreSQL + SQL (CTEs, window func
 3. [Solution Overview](#solution-overview)
 4. [Methodology](#methodology)
 5. [Segments & Recommended Actions](#segments--recommended-actions)
-6. [Business Benefits](#business-benefits)
-7. [Key Results](#key-results)
+6. [Key Results](#key-results)
+7. [Business Benefits](#business-benefits)
 8. [Tech Stack](#tech-stack)
 9. [Project Structure](#project-structure)
 10. [Installation & Setup](#installation--setup)
 11. [SQL Layer](#sql-layer)
 12. [Dashboard](#dashboard)
 13. [Deployment](#deployment)
-14. [Limitations & Future Work](#limitations--future-work)
-15. [Author](#author)
+14. [Lessons Learned](#lessons-learned)
+15. [Limitations & Future Work](#limitations--future-work)
+16. [Author](#author)
 
 ---
 
@@ -94,43 +97,80 @@ flowchart LR
 
 **4. Scoring.** Each metric is scored 1 to 5 with quintiles. Ranking is applied before `qcut` because frequency and monetary have many repeated values, which otherwise causes "Bin edges must be unique" errors.
 
-**5. Clustering.** R, F and M are standardised (`StandardScaler`) so monetary does not dominate the distance calculation, then clustered with **KMeans (k = 4, `random_state=42`)**.
+**5. Clustering.** Spend and order counts are heavily skewed (a few wholesale-style accounts spend hundreds of thousands), so R, F and M are first **log-transformed (`log1p`)** and then standardised (`StandardScaler`). KMeans is run for k = 3 to 6; **k is chosen by silhouette score**, and any k that creates a cluster under 2% of customers is rejected.
 
-**6. Automatic labelling.** Clusters are ranked on recency, frequency and monetary and combined into a composite rank, then named best to worst. This removes the need to hand-map cluster IDs to names, which changes between runs.
+**6. Behaviour-based labelling.** Each cluster is named from its **average 1 to 5 R, F and M scores**, with recency checked first:
+
+| Rule (cluster averages) | Label |
+|---|---|
+| Recent (R ≥ 3.5), F ≥ 4 and M ≥ 4 | Champions |
+| Recent, good F/M | Loyal Customers |
+| Recent, low F/M | Potential Loyalists |
+| Gone quiet (R < 3), good F/M | At Risk |
+| Gone quiet, low F/M | Lost / Churned |
+
+The script also prints a warning if two clusters share a label or no At Risk cluster exists.
 
 ---
 
 ## Segments & Recommended Actions
 
-| Segment | Behaviour | Recommended action |
+| Segment | Behaviour (cluster averages) | Recommended action |
 |---|---|---|
-| **Champions** | Bought recently, order often, highest spend | Loyalty programme, early access, referral rewards. Retain, don't discount |
-| **Loyal Customers** | Regular buyers, moderate spend | Upsell and cross-sell, nudge towards Champion behaviour |
-| **At Risk** | Were valuable, but have gone quiet | Targeted win-back email / offer before they churn |
-| **Lost / Churned** | Long inactive, low activity | Stop broad marketing spend; low-cost reactivation at most |
-
----
-
-## Business Benefits
-
-- **Retention over acquisition:** shows how concentrated revenue is, so budget can move towards protecting top customers.
-- **Early churn warning:** quantifies revenue sitting in the At Risk group and gives a recency threshold to automate alerts.
-- **Less wasted spend:** identifies customers who no longer respond so generic campaigns can skip them.
-- **Actionable output:** every customer carries a segment label, exportable as CSV for CRM or email tools.
-- **Repeatable:** the whole pipeline re-runs from the raw file, so it can be refreshed monthly.
+| **Champions** | Bought ~24 days ago, ~20 orders, ~£11.5K spend | Loyalty programme, early access, referral rewards. Retain, don't discount |
+| **Potential Loyalists** | Bought ~27 days ago, ~3 orders, ~£843 | Nudge to a second and third order; cross-sell |
+| **At Risk** | Last bought ~204 days ago, ~5.5 orders, ~£2.1K | Targeted win-back email / offer before they churn |
+| **Lost / Churned** | Last bought ~391 days ago, ~1.4 orders, ~£345 | Stop broad marketing spend; low-cost reactivation at most |
 
 ---
 
 ## Key Results
 
-> Run [`sql/04_business_queries.sql`](sql/04_business_queries.sql) after the pipeline and fill in the values below from your own output.
+5,878 customers profiled from 1M+ raw invoice lines. Total revenue in the cleaned data is about £17.4M.
 
-- **Scale:** 1M+ raw invoice lines reduced to a cleaned set of **5,878 customers** profiled.
-- Top 10% of customers generate **_XX_%** of total revenue (Q1).
-- Champions + Loyal customers are **_XX_%** of customers but **_XX_%** of revenue (Q2).
-- At Risk segment holds **_£X_** in historical revenue; a 15% win-back is worth **_£Y_** (Q3).
-- Suggested re-engagement trigger: no purchase for **_N_** days (Q4).
-- Top-3 countries account for **_XX_%** of revenue (Q6).
+**Revenue concentration (Q1)**
+
+| Customers (by spend) | Share of revenue |
+|---|---|
+| Top 10% | 63.9% |
+| Top 20% | 77.2% |
+| Top 30% | 85.0% |
+
+**Segments (Q2)**
+
+| Segment | Customers | % of customers | ~% of revenue* |
+|---|---|---|---|
+| Champions | 1,085 | 18.5% | ~71.5% |
+| At Risk | 1,496 | 25.5% | 18.5% |
+| Potential Loyalists | 1,214 | 20.7% | ~5.9% |
+| Lost / Churned | 2,083 | 35.4% | ~4.1% |
+
+\*Derived from customers x average spend; confirm against the `pct_of_revenue` column of Q2.
+
+**At Risk opportunity (Q3)**
+- 1,496 customers holding **£3,209,444** of historical revenue (18.5% of total).
+- At an assumed 15% win-back rate: about **£481K**. At 20%: about **£642K**. These rates are planning assumptions, not measured values.
+
+**Churn trigger (Q4)**
+- At Risk customers' recency starts at 20 days and their 25th percentile is 76 days; Lost / Churned customers' 25th percentile is 244 days.
+- Suggested re-engagement trigger: no purchase for **[N] days** (take this from the At Risk median / p75 in Q4).
+
+**Geography (Q6)**
+- The UK is dominant: 5,350 customers and £14.4M revenue, about 83% of total.
+- Next: EIRE (£617K, 5 customers) and the Netherlands (£554K, 22 customers).
+- Top 3 countries together are about 90% of revenue.
+
+**Retail vs wholesale (Q5):** [fill in from your Q5 output: share of revenue from customers with 10+ orders].
+
+---
+
+## Business Benefits
+
+- **Retention over acquisition:** under a fifth of customers produce about 70% of revenue, so budget should shift towards protecting them.
+- **Early churn warning:** £3.2M of historical revenue sits in a group that has gone quiet but still has good order history, and the recency data gives a threshold to automate alerts.
+- **Less wasted spend:** the Lost / Churned group is 35% of customers but only about 4% of revenue, so generic campaigns can skip it.
+- **Actionable output:** every customer carries a segment label, exportable as CSV for CRM or email tools, and Q7 produces a ranked win-back call list.
+- **Repeatable:** the whole pipeline re-runs from the raw file, so it can be refreshed monthly.
 
 ---
 
@@ -154,24 +194,24 @@ flowchart LR
 ```
 customer-segmentation-using-rfm-analysis/
 ├── data/
-│   ├── raw/                      
-│   └── processed/                
+│   ├── raw/                      # source CSV (git-ignored)
+│   └── processed/                # rfm_scored.csv
 ├── sql/
-│   ├── 01_schema.sql             
-│   ├── 02_clean_data.sql        
-│   ├── 03_rfm_aggregation.sql    
-│   └── 04_business_queries.sql   
+│   ├── 01_schema.sql             # raw table reference
+│   ├── 02_clean_data.sql         # filtering and type cleanup
+│   ├── 03_rfm_aggregation.sql    # one row per customer
+│   └── 04_business_queries.sql   # Q1 to Q7
 ├── src/
-│   ├── db_connection.py          
-│   ├── data_loader.py          
-│   ├── segmentation.py          
-│   └── utils.py                
+│   ├── db_connection.py          # SQLAlchemy engine
+│   ├── data_loader.py            # CSV to PostgreSQL
+│   ├── segmentation.py           # scoring, clustering, labelling
+│   └── utils.py
 ├── app/
-│   └── streamlit_app.py          
+│   └── streamlit_app.py          # dashboard
 ├── notebooks/
-│   ├── eda.ipynb                 
-│   └── EDA_REPORT.md             
-├── deployment
+│   ├── eda.ipynb
+│   └── EDA_REPORT.md
+├── deployment/
 │   └── ec2_setup_notes.md
 ├── .env.example
 ├── .gitignore
@@ -242,13 +282,14 @@ psql -U postgres -d rfm_db -f ../sql/03_rfm_aggregation.sql
 ```bash
 python segmentation.py
 ```
-Writes the `rfm_scored` table and `data/processed/rfm_scored.csv`, and prints each segment's profile.
+Writes the `rfm_scored` table and `data/processed/rfm_scored.csv`, and prints the silhouette score per k and each segment's profile.
 
-### 8. Answer the business questions (optional)
+### 8. Answer the business questions
 ```bash
 cd ..
 psql -U postgres -d rfm_db -f sql/04_business_queries.sql
 ```
+Re-run this after every re-clustering, because Q2, Q3, Q4 and Q7 depend on the segment labels.
 
 ### 9. Launch the dashboard (from the project root)
 ```bash
@@ -263,6 +304,7 @@ Open `http://localhost:8501`.
 | `column "Customer ID" does not exist` | Column names differ by export; check with `SELECT * FROM raw_transactions LIMIT 5;` |
 | `Could not find data/processed/rfm_scored.csv` | Run `python src/segmentation.py` first |
 | Rows dropped is far above ~30% | Check column-name mapping in `02_clean_data.sql` |
+| Q3 returns 0 customers / Q7 returns no data | No cluster is labelled "At Risk"; read the profile table printed by `segmentation.py` |
 
 ---
 
@@ -273,7 +315,7 @@ Open `http://localhost:8501`.
 | `01_schema.sql` | Documents the raw table shape | Reference only |
 | `02_clean_data.sql` | Filters invalid rows, standardises column names to `snake_case` and types | `CREATE TABLE AS`, casting |
 | `03_rfm_aggregation.sql` | Builds one row per customer with R, F, M | CTEs, `GROUP BY`, date arithmetic |
-| `04_business_queries.sql` | Answers Q1 to Q7 | `NTILE`, `SUM() OVER`, `PERCENTILE_CONT`, `CASE` |
+| `04_business_queries.sql` | Answers Q1 to Q7 | `NTILE`, `SUM() OVER`, `PERCENTILE_CONT`, `CASE`, `COALESCE` |
 
 Example, revenue concentration by customer decile:
 ```sql
@@ -312,11 +354,22 @@ Because the dashboard reads the processed CSV, the server does not need a live d
 
 ---
 
+## Lessons Learned
+
+1. **Raw KMeans on skewed data gives useless clusters.** The first run produced clusters of 4 and 38 customers because a handful of wholesale-style accounts dominate spend. A `log1p` transform and a minimum-cluster-size rule gave four balanced segments (1,085 to 2,083 customers each).
+2. **Labels must follow behaviour, not rank order.** The first labelling code handed out names by cluster rank, so an active group (bought ~66 days ago, 7 orders) was called "At Risk". Labels are now assigned from each cluster's R/F/M averages, with recency checked first.
+3. **Sanity-check labels against the profile table.** A cluster with R = 2.6 was briefly labelled "Loyal" because of a loose threshold; the downstream query Q3 returned zero rows, which exposed the bug. The script now warns when no At Risk cluster exists.
+
+---
+
 ## Limitations & Future Work
 
 **Limitations**
 - RFM weights the three metrics equally and ignores product category and seasonality.
-- KMeans is sensitive to `k` and outliers; `notebooks/eda.ipynb` uses elbow and silhouette scores to justify the choice of `k`.
+- KMeans clusters are fuzzy: the minimum recency of the At Risk group is 20 days, so a single day-count cannot cleanly separate segments. The churn trigger comes from recency percentiles, not a hard cluster boundary.
+- The label thresholds (R ≥ 3.5, F/M ≥ 4, and so on) are judgement calls and should be reviewed after every re-run.
+- Win-back rates of 15% and 20% are assumptions, not measured values.
+- Revenue is concentrated: Champions produce ~71% of revenue and the UK ~83%, so results depend heavily on a few customers and one market.
 - The data covers 2009 to 2011 and one UK retailer, so thresholds should be re-validated on current data before real use.
 
 **Future work**
@@ -324,6 +377,7 @@ Because the dashboard reads the processed CSV, the server does not need a live d
 - Power BI / Tableau version of the dashboard
 - Dockerise the pipeline
 - CLV prediction and churn probability model on top of RFM
+- Measure real win-back rates with an A/B test instead of assumed ones
 
 ---
 
