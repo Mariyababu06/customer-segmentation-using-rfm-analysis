@@ -194,21 +194,21 @@ The script also prints a warning if two clusters share a label or no At Risk clu
 ```
 customer-segmentation-using-rfm-analysis/
 ├── data/
-│   ├── raw/                      # source CSV (git-ignored)
-│   └── processed/                # rfm_scored.csv
+│   ├── raw/                      
+│   └── processed/                
 ├── sql/
-│   ├── 01_schema.sql             # raw table reference
-│   ├── 02_clean_data.sql         # filtering and type cleanup
-│   ├── 03_rfm_aggregation.sql    # one row per customer
-│   └── 04_business_queries.sql   # Q1 to Q7
+│   ├── 01_schema.sql             
+│   ├── 02_clean_data.sql         
+│   ├── 03_rfm_aggregation.sql    
+│   └── 04_business_queries.sql   
 ├── src/
-│   ├── db_connection.py          # SQLAlchemy engine
-│   ├── data_loader.py            # CSV to PostgreSQL
-│   ├── segmentation.py           # scoring, clustering, labelling
+│   ├── db_connection.py          
+│   ├── data_loader.py            
+│   ├── segmentation.py           
 │   └── utils.py
 ├── app/
-│   └── streamlit_app.py          # dashboard
-├── notebooks/
+│   └── streamlit_app.py          
+├── notebooks
 │   ├── eda.ipynb
 │   └── EDA_REPORT.md
 ├── deployment/
